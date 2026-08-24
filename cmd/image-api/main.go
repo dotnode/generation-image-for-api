@@ -19,7 +19,10 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
+	"runtime"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -40,16 +43,17 @@ func (values *stringList) Set(value string) error {
 }
 
 type options struct {
-	check      bool
-	listModels bool
-	prompt     string
-	edits      stringList
-	mask       string
-	model      string
-	size       string
-	quality    string
-	outputDir  string
-	timeout    time.Duration
+	check       bool
+	syncRouting bool
+	listModels  bool
+	prompt      string
+	edits       stringList
+	mask        string
+	model       string
+	size        string
+	quality     string
+	outputDir   string
+	timeout     time.Duration
 }
 
 type providerAuth struct {
@@ -72,6 +76,15 @@ type codexConfig struct {
 	ModelProvider  string                    `toml:"model_provider"`
 	OpenAIBaseURL  string                    `toml:"openai_base_url"`
 	ModelProviders map[string]providerConfig `toml:"model_providers"`
+}
+
+type skillConfigDocument struct {
+	Skills struct {
+		Config []struct {
+			Path    string `toml:"path"`
+			Enabled *bool  `toml:"enabled"`
+		} `toml:"config"`
+	} `toml:"skills"`
 }
 
 type providerSelection struct {
@@ -106,6 +119,13 @@ type outputResult struct {
 	TotalModels        *int     `json:"total_models,omitempty"`
 	ImageSupported     *bool    `json:"image_supported,omitempty"`
 	UseCodexImagegen   *bool    `json:"use_codex_imagegen,omitempty"`
+	OfficialLogin      *bool    `json:"official_login,omitempty"`
+	RoutingChanged     *bool    `json:"routing_changed,omitempty"`
+	CustomSkillEnabled *bool    `json:"custom_skill_enabled,omitempty"`
+	SystemSkillEnabled *bool    `json:"system_imagegen_enabled,omitempty"`
+	ConfigPath         string   `json:"config_path,omitempty"`
+	BackupPath         string   `json:"backup_path,omitempty"`
+	RestartRequired    *bool    `json:"restart_required,omitempty"`
 	Message            string   `json:"message,omitempty"`
 	Model              string   `json:"model,omitempty"`
 	Operation          string   `json:"operation,omitempty"`
@@ -132,13 +152,18 @@ func run(args []string, stdout, stderr io.Writer) int {
 	}
 	baseURL := strings.TrimRight(selection.Provider.BaseURL, "/")
 	thirdParty := !selection.Official
+	authMode := loadAuthMode(selection.Home)
+	officialLogin := isChatGPTLogin(authMode) || selection.Official
+	if opts.syncRouting {
+		return runSyncRouting(opts, selection, baseURL, authMode, officialLogin, stdout, stderr)
+	}
 	if selection.Official {
 		useCodexImagegen := true
 		message := "Official Codex/OpenAI provider detected. Use Codex's built-in image generation tool instead of this third-party API CLI."
 		result := outputResult{
 			OK: true, Provider: selection.ID, ProviderType: "official_openai",
-			ThirdParty: &thirdParty, AuthMode: loadAuthMode(selection.Home), BaseURL: baseURL,
-			UseCodexImagegen: &useCodexImagegen, Message: message,
+			ThirdParty: &thirdParty, AuthMode: authMode, OfficialLogin: &officialLogin,
+			BaseURL: baseURL, UseCodexImagegen: &useCodexImagegen, Message: message,
 		}
 		if opts.check || opts.listModels {
 			writeJSON(stdout, result)
@@ -173,6 +198,7 @@ func run(args []string, stdout, stderr io.Writer) int {
 		writeJSON(stdout, outputResult{
 			OK: true, Provider: selection.ID, ProviderType: "third_party_api",
 			ThirdParty: &thirdParty, BaseURL: baseURL,
+			AuthMode: authMode, OfficialLogin: &officialLogin,
 			GenerationEndpoint: baseURL + "/images/generations",
 			EditEndpoint:       baseURL + "/images/edits",
 			TokenSource:        tokenSource, TokenPresent: token != "",
@@ -247,6 +273,81 @@ func run(args []string, stdout, stderr io.Writer) int {
 	return 0
 }
 
+func runSyncRouting(opts options, selection providerSelection, baseURL, authMode string, officialLogin bool, stdout, stderr io.Writer) int {
+	thirdParty := !selection.Official
+	useCodexImagegen := selection.Official
+	customEnabled := false
+	systemEnabled := true
+	imageSupported := false
+	var models []string
+	var total *int
+	tokenSource := ""
+	tokenPresent := false
+	token := ""
+
+	fail := func(err error) int {
+		writeJSON(stderr, outputResult{
+			OK: false, Provider: selection.ID, ThirdParty: &thirdParty,
+			AuthMode: authMode, OfficialLogin: &officialLogin,
+			ImageModels: models, TotalModels: total, ImageSupported: &imageSupported,
+			UseCodexImagegen: &useCodexImagegen, Error: redact(err.Error(), token),
+		})
+		return 1
+	}
+
+	if thirdParty {
+		var err error
+		token, tokenSource, err = resolveToken(selection.Provider, selection.Home)
+		if err != nil {
+			return fail(err)
+		}
+		tokenPresent = token != ""
+		client := &http.Client{Timeout: opts.timeout}
+		var response map[string]any
+		if err := requestJSON(client, http.MethodGet, baseURL+"/models", token, nil, &response); err != nil {
+			return fail(fmt.Errorf("could not verify third-party image-model support; routing config was not changed: %w", err))
+		}
+		models, total = likelyImageModels(response)
+		imageSupported = len(models) > 0
+		if imageSupported {
+			customEnabled = true
+			systemEnabled = false
+			useCodexImagegen = false
+		} else if officialLogin {
+			customEnabled = false
+			systemEnabled = true
+			useCodexImagegen = true
+		} else {
+			return fail(errors.New("the third-party API exposes no recognizable image model and no official ChatGPT login is available; routing config was not changed"))
+		}
+	}
+
+	configPath, backupPath, changed, err := syncSkillConfig(selection.Home, customEnabled, systemEnabled)
+	if err != nil {
+		return fail(err)
+	}
+	restartRequired := changed
+	message := "Image skill routing already matched the detected provider."
+	if changed {
+		message = "Image skill routing was updated. Start a new Codex task so the skill catalog refreshes."
+	}
+	providerType := "official_openai"
+	if thirdParty {
+		providerType = "third_party_api"
+	}
+	writeJSON(stdout, outputResult{
+		OK: true, Provider: selection.ID, ProviderType: providerType,
+		ThirdParty: &thirdParty, AuthMode: authMode, OfficialLogin: &officialLogin,
+		BaseURL: baseURL, TokenSource: tokenSource, TokenPresent: tokenPresent,
+		ImageModels: models, TotalModels: total, ImageSupported: &imageSupported,
+		UseCodexImagegen: &useCodexImagegen, RoutingChanged: &changed,
+		CustomSkillEnabled: &customEnabled, SystemSkillEnabled: &systemEnabled,
+		ConfigPath: configPath, BackupPath: backupPath,
+		RestartRequired: &restartRequired, Message: message,
+	})
+	return 0
+}
+
 func parseOptions(args []string) (options, error) {
 	var opts options
 	defaultModel := os.Getenv("NEWAPI_IMAGE_MODEL")
@@ -256,6 +357,7 @@ func parseOptions(args []string) (options, error) {
 	flags := flag.NewFlagSet("image-api", flag.ContinueOnError)
 	flags.SetOutput(io.Discard)
 	flags.BoolVar(&opts.check, "check", false, "validate provider and token resolution")
+	flags.BoolVar(&opts.syncRouting, "sync-routing", false, "safely enable the appropriate image skill in Codex config")
 	flags.BoolVar(&opts.listModels, "list-models", false, "list likely image models")
 	flags.StringVar(&opts.prompt, "prompt", "", "image prompt")
 	flags.Var(&opts.edits, "edit", "edit/reference image path; repeat for multiple images")
@@ -271,6 +373,9 @@ func parseOptions(args []string) (options, error) {
 	}
 	if flags.NArg() != 0 {
 		return opts, fmt.Errorf("unexpected arguments: %s", strings.Join(flags.Args(), " "))
+	}
+	if opts.syncRouting && (opts.check || opts.listModels || opts.prompt != "" || len(opts.edits) != 0 || opts.mask != "") {
+		return opts, errors.New("--sync-routing cannot be combined with image actions or other diagnostic modes")
 	}
 	if timeoutSeconds < 1 {
 		return opts, errors.New("--timeout must be at least 1 second")
@@ -349,6 +454,266 @@ func loadAuthMode(home string) string {
 		return "unknown"
 	}
 	return strings.TrimSpace(auth.Mode)
+}
+
+func isChatGPTLogin(authMode string) bool {
+	return strings.EqualFold(strings.TrimSpace(authMode), "chatgpt")
+}
+
+func syncSkillConfig(home string, customEnabled, systemEnabled bool) (string, string, bool, error) {
+	configPath := filepath.Join(home, "config.toml")
+	info, err := os.Lstat(configPath)
+	if err != nil {
+		return configPath, "", false, fmt.Errorf("read Codex config metadata: %w", err)
+	}
+	if info.Mode()&os.ModeSymlink != 0 || !info.Mode().IsRegular() {
+		return configPath, "", false, fmt.Errorf("refusing to modify non-regular Codex config: %s", configPath)
+	}
+	raw, err := os.ReadFile(configPath)
+	if err != nil {
+		return configPath, "", false, fmt.Errorf("read Codex config: %w", err)
+	}
+	desired := []skillToggle{
+		{Path: filepath.Join(home, "skills", "generation-image-for-api"), Enabled: customEnabled},
+		{Path: filepath.Join(home, "skills", ".system", "imagegen"), Enabled: systemEnabled},
+	}
+	updated, changed, err := updateSkillConfig(raw, home, desired)
+	if err != nil {
+		return configPath, "", false, err
+	}
+	if !changed {
+		return configPath, "", false, nil
+	}
+	var validation codexConfig
+	if err := toml.Unmarshal(updated, &validation); err != nil {
+		return configPath, "", false, fmt.Errorf("refusing to write invalid Codex config: %w", err)
+	}
+	backupPath, err := writeConfigBackup(configPath, raw, info.Mode().Perm())
+	if err != nil {
+		return configPath, "", false, err
+	}
+	if err := writeFileAtomic(configPath, updated, info.Mode().Perm()); err != nil {
+		return configPath, backupPath, false, fmt.Errorf("write Codex config atomically: %w", err)
+	}
+	return configPath, backupPath, true, nil
+}
+
+type skillToggle struct {
+	Path    string
+	Enabled bool
+}
+
+var (
+	skillConfigHeader = regexp.MustCompile(`^[ \t]*\[\[skills\.config\]\][ \t]*(?:#.*)?$`)
+	anyTableHeader    = regexp.MustCompile(`^[ \t]*\[`)
+	enabledSetting    = regexp.MustCompile(`^([ \t]*)enabled[ \t]*=[ \t]*(?:true|false)([ \t]*(?:#.*)?)$`)
+	pathSetting       = regexp.MustCompile(`^[ \t]*path[ \t]*=`)
+)
+
+func updateSkillConfig(raw []byte, home string, desired []skillToggle) ([]byte, bool, error) {
+	newline := "\n"
+	text := string(raw)
+	if strings.Contains(text, "\r\n") {
+		newline = "\r\n"
+		text = strings.ReplaceAll(text, "\r\n", "\n")
+	}
+	endedWithNewline := strings.HasSuffix(text, "\n")
+	lines := strings.Split(strings.TrimSuffix(text, "\n"), "\n")
+	if len(lines) == 1 && lines[0] == "" {
+		lines = nil
+	}
+	targets := make(map[string]skillToggle, len(desired))
+	for _, toggle := range desired {
+		normalized, err := normalizeConfigPath(toggle.Path, home)
+		if err != nil {
+			return nil, false, err
+		}
+		targets[normalized] = toggle
+	}
+	found := make(map[string]bool, len(desired))
+	out := make([]string, 0, len(lines)+8)
+	changed := false
+
+	for index := 0; index < len(lines); {
+		if !skillConfigHeader.MatchString(lines[index]) {
+			out = append(out, lines[index])
+			index++
+			continue
+		}
+		end := index + 1
+		for end < len(lines) && !anyTableHeader.MatchString(lines[end]) {
+			end++
+		}
+		block := append([]string(nil), lines[index:end]...)
+		path, err := skillBlockPath(block)
+		if err != nil {
+			return nil, false, err
+		}
+		if path != "" {
+			normalized, err := normalizeConfigPath(path, home)
+			if err != nil {
+				return nil, false, err
+			}
+			if toggle, ok := targets[normalized]; ok {
+				var blockChanged bool
+				block, blockChanged = setSkillBlockEnabled(block, toggle.Enabled)
+				changed = changed || blockChanged
+				found[normalized] = true
+			}
+		}
+		out = append(out, block...)
+		index = end
+	}
+
+	for _, toggle := range desired {
+		normalized, _ := normalizeConfigPath(toggle.Path, home)
+		if found[normalized] {
+			continue
+		}
+		for len(out) > 0 && strings.TrimSpace(out[len(out)-1]) == "" {
+			out = out[:len(out)-1]
+		}
+		if len(out) > 0 {
+			out = append(out, "")
+		}
+		out = append(out,
+			"[[skills.config]]",
+			"path = "+strconv.Quote(toggle.Path),
+			"enabled = "+strconv.FormatBool(toggle.Enabled),
+		)
+		changed = true
+	}
+
+	result := strings.Join(out, newline)
+	if endedWithNewline || changed {
+		result += newline
+	}
+	return []byte(result), changed, nil
+}
+
+func skillBlockPath(block []string) (string, error) {
+	var document skillConfigDocument
+	if err := toml.Unmarshal([]byte(strings.Join(block, "\n")+"\n"), &document); err != nil {
+		return "", fmt.Errorf("parse [[skills.config]] block: %w", err)
+	}
+	if len(document.Skills.Config) == 0 {
+		return "", nil
+	}
+	return document.Skills.Config[0].Path, nil
+}
+
+func setSkillBlockEnabled(block []string, enabled bool) ([]string, bool) {
+	desired := strconv.FormatBool(enabled)
+	for index, line := range block {
+		match := enabledSetting.FindStringSubmatch(line)
+		if match == nil {
+			continue
+		}
+		updated := match[1] + "enabled = " + desired + match[2]
+		if updated == line {
+			return block, false
+		}
+		block[index] = updated
+		return block, true
+	}
+	for index, line := range block {
+		if pathSetting.MatchString(line) {
+			block = append(block, "")
+			copy(block[index+2:], block[index+1:])
+			block[index+1] = "enabled = " + desired
+			return block, true
+		}
+	}
+	return append(block, "enabled = "+desired), true
+}
+
+func normalizeConfigPath(path, home string) (string, error) {
+	path = strings.TrimSpace(path)
+	if path == "~" || strings.HasPrefix(path, "~/") || strings.HasPrefix(path, `~\`) {
+		userHome, err := os.UserHomeDir()
+		if err != nil {
+			return "", err
+		}
+		if path == "~" {
+			path = userHome
+		} else {
+			path = filepath.Join(userHome, path[2:])
+		}
+	}
+	if !filepath.IsAbs(path) {
+		path = filepath.Join(home, path)
+	}
+	path = filepath.Clean(path)
+	if runtime.GOOS == "windows" {
+		path = strings.ToLower(path)
+	}
+	return path, nil
+}
+
+func writeConfigBackup(configPath string, raw []byte, mode os.FileMode) (string, error) {
+	stamp := time.Now().Format("20060102-150405")
+	for attempt := 0; attempt < 100; attempt++ {
+		suffix := ""
+		if attempt > 0 {
+			suffix = fmt.Sprintf("-%02d", attempt)
+		}
+		path := configPath + ".image-routing-backup-" + stamp + suffix
+		file, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, mode)
+		if errors.Is(err, os.ErrExist) {
+			continue
+		}
+		if err != nil {
+			return "", fmt.Errorf("create Codex config backup: %w", err)
+		}
+		if _, err := file.Write(raw); err != nil {
+			_ = file.Close()
+			return "", fmt.Errorf("write Codex config backup: %w", err)
+		}
+		if err := file.Sync(); err != nil {
+			_ = file.Close()
+			return "", fmt.Errorf("sync Codex config backup: %w", err)
+		}
+		if err := file.Close(); err != nil {
+			return "", fmt.Errorf("close Codex config backup: %w", err)
+		}
+		return path, nil
+	}
+	return "", errors.New("could not allocate a unique Codex config backup path")
+}
+
+func writeFileAtomic(path string, data []byte, mode os.FileMode) error {
+	directory := filepath.Dir(path)
+	temporary, err := os.CreateTemp(directory, ".config.toml.image-routing-*")
+	if err != nil {
+		return err
+	}
+	temporaryPath := temporary.Name()
+	keep := false
+	defer func() {
+		if !keep {
+			_ = os.Remove(temporaryPath)
+		}
+	}()
+	if err := temporary.Chmod(mode); err != nil {
+		_ = temporary.Close()
+		return err
+	}
+	if _, err := temporary.Write(data); err != nil {
+		_ = temporary.Close()
+		return err
+	}
+	if err := temporary.Sync(); err != nil {
+		_ = temporary.Close()
+		return err
+	}
+	if err := temporary.Close(); err != nil {
+		return err
+	}
+	if err := replaceFileAtomic(temporaryPath, path); err != nil {
+		return err
+	}
+	keep = true
+	return nil
 }
 
 func resolveToken(provider providerConfig, home string) (string, string, error) {

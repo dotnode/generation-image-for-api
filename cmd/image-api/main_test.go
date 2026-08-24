@@ -11,6 +11,8 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+
+	"github.com/pelletier/go-toml/v2"
 )
 
 func writeTestConfig(t *testing.T, baseURL string) string {
@@ -250,4 +252,185 @@ func TestOfficialURLDetection(t *testing.T) {
 	if isOfficialOpenAIURL("https://api.openai.com.example.com/v1") {
 		t.Fatal("lookalike URL was classified as official")
 	}
+}
+
+func TestSyncRoutingEnablesCustomSkillForSupportedThirdParty(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		if request.URL.Path != "/v1/models" {
+			t.Fatalf("unexpected request path: %s", request.URL.Path)
+		}
+		_ = json.NewEncoder(writer).Encode(map[string]any{"data": []map[string]string{{"id": "gpt-image-2"}}})
+	}))
+	defer server.Close()
+	home := writeTestConfig(t, server.URL+"/v1")
+	configPath := filepath.Join(home, "config.toml")
+	original, err := os.ReadFile(configPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	customPath := filepath.Join(home, "skills", "generation-image-for-api")
+	config := string(original) + fmt.Sprintf(`
+# preserve this comment
+[[skills.config]]
+path = %q
+enabled = false
+`, customPath)
+	if err := os.WriteFile(configPath, []byte(config), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	original = []byte(config)
+
+	var stdout, stderr bytes.Buffer
+	if code := run([]string{"--sync-routing"}, &stdout, &stderr); code != 0 {
+		t.Fatalf("sync failed (%d): %s", code, stderr.String())
+	}
+	result := decodeResult(t, &stdout)
+	if result.RoutingChanged == nil || !*result.RoutingChanged || result.CustomSkillEnabled == nil || !*result.CustomSkillEnabled {
+		t.Fatalf("unexpected sync result: %#v", result)
+	}
+	if result.SystemSkillEnabled == nil || *result.SystemSkillEnabled || result.BackupPath == "" {
+		t.Fatalf("unexpected system routing result: %#v", result)
+	}
+	assertSkillEnabled(t, configPath, customPath, true)
+	assertSkillEnabled(t, configPath, filepath.Join(home, "skills", ".system", "imagegen"), false)
+	updated, err := os.ReadFile(configPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Contains(updated, []byte("# preserve this comment")) {
+		t.Fatal("unrelated config comment was not preserved")
+	}
+	backup, err := os.ReadFile(result.BackupPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(backup, original) {
+		t.Fatal("config backup does not match original")
+	}
+
+	stdout.Reset()
+	stderr.Reset()
+	if code := run([]string{"--sync-routing"}, &stdout, &stderr); code != 0 {
+		t.Fatalf("second sync failed (%d): %s", code, stderr.String())
+	}
+	result = decodeResult(t, &stdout)
+	if result.RoutingChanged == nil || *result.RoutingChanged || result.BackupPath != "" {
+		t.Fatalf("sync was not idempotent: %#v", result)
+	}
+}
+
+func TestSyncRoutingEnablesSystemSkillForOfficialProvider(t *testing.T) {
+	home := t.TempDir()
+	customPath := filepath.Join(home, "skills", "generation-image-for-api")
+	systemPath := filepath.Join(home, "skills", ".system", "imagegen")
+	config := fmt.Sprintf(`model_provider = "openai"
+
+[[skills.config]]
+path = %q
+enabled = true
+
+[[skills.config]]
+path = %q
+enabled = false
+`, customPath, systemPath)
+	if err := os.WriteFile(filepath.Join(home, "config.toml"), []byte(config), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(home, "auth.json"), []byte(`{"auth_mode":"chatgpt"}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("CODEX_HOME", home)
+
+	var stdout, stderr bytes.Buffer
+	if code := run([]string{"--sync-routing"}, &stdout, &stderr); code != 0 {
+		t.Fatalf("sync failed (%d): %s", code, stderr.String())
+	}
+	result := decodeResult(t, &stdout)
+	if result.CustomSkillEnabled == nil || *result.CustomSkillEnabled {
+		t.Fatalf("custom skill was not disabled: %#v", result)
+	}
+	if result.SystemSkillEnabled == nil || !*result.SystemSkillEnabled || result.UseCodexImagegen == nil || !*result.UseCodexImagegen {
+		t.Fatalf("system skill was not enabled: %#v", result)
+	}
+	assertSkillEnabled(t, filepath.Join(home, "config.toml"), customPath, false)
+	assertSkillEnabled(t, filepath.Join(home, "config.toml"), systemPath, true)
+}
+
+func TestSyncRoutingLeavesConfigUntouchedWhenNoImageRouteExists(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		_ = json.NewEncoder(writer).Encode(map[string]any{"data": []map[string]string{{"id": "text-only"}}})
+	}))
+	defer server.Close()
+	home := writeTestConfig(t, server.URL+"/v1")
+	configPath := filepath.Join(home, "config.toml")
+	original, err := os.ReadFile(configPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	var stdout, stderr bytes.Buffer
+	if code := run([]string{"--sync-routing"}, &stdout, &stderr); code == 0 {
+		t.Fatal("expected routing failure")
+	}
+	current, err := os.ReadFile(configPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(current, original) {
+		t.Fatal("config changed despite missing image route")
+	}
+	backups, err := filepath.Glob(configPath + ".image-routing-backup-*")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(backups) != 0 {
+		t.Fatalf("unexpected backup after failed sync: %#v", backups)
+	}
+}
+
+func TestSyncRoutingFallsBackToSystemSkillForChatGPTLogin(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		_ = json.NewEncoder(writer).Encode(map[string]any{"data": []map[string]string{{"id": "text-only"}}})
+	}))
+	defer server.Close()
+	home := writeTestConfig(t, server.URL+"/v1")
+	if err := os.WriteFile(filepath.Join(home, "auth.json"), []byte(`{"auth_mode":"chatgpt"}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	var stdout, stderr bytes.Buffer
+	if code := run([]string{"--sync-routing"}, &stdout, &stderr); code != 0 {
+		t.Fatalf("sync failed (%d): %s", code, stderr.String())
+	}
+	result := decodeResult(t, &stdout)
+	if result.OfficialLogin == nil || !*result.OfficialLogin {
+		t.Fatalf("ChatGPT login was not detected: %#v", result)
+	}
+	if result.CustomSkillEnabled == nil || *result.CustomSkillEnabled {
+		t.Fatalf("custom skill was not disabled: %#v", result)
+	}
+	if result.SystemSkillEnabled == nil || !*result.SystemSkillEnabled || result.UseCodexImagegen == nil || !*result.UseCodexImagegen {
+		t.Fatalf("system fallback was not enabled: %#v", result)
+	}
+}
+
+func assertSkillEnabled(t *testing.T, configPath, skillPath string, expected bool) {
+	t.Helper()
+	raw, err := os.ReadFile(configPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var document skillConfigDocument
+	if err := toml.Unmarshal(raw, &document); err != nil {
+		t.Fatal(err)
+	}
+	for _, item := range document.Skills.Config {
+		if filepath.Clean(item.Path) == filepath.Clean(skillPath) {
+			if item.Enabled == nil || *item.Enabled != expected {
+				t.Fatalf("skill %s enabled=%v, expected %v", skillPath, item.Enabled, expected)
+			}
+			return
+		}
+	}
+	t.Fatalf("skill config not found: %s", skillPath)
 }

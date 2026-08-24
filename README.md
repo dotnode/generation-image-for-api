@@ -20,8 +20,9 @@
 4. 所有资源必须从下面列出的 `raw.githubusercontent.com` 地址下载，不需要克隆或访问 GitHub 仓库页面。
 5. macOS/Linux 下载后为二进制添加可执行权限；Windows 不需要。
 6. 对照 `checksums.sha256` 中当前平台对应的记录验证二进制 SHA-256。
-7. 运行二进制的 `--check`。不得输出、复制或记录 API Key。
-8. 安装成功后告诉用户：该 Skill 将在下一轮对话中可用。
+7. 运行二进制的 `--sync-routing`，让程序完成 Provider、登录状态及图片模型检查，并安全设置两个图片 Skill 的启用状态。不得输出、复制或记录 API Key。
+8. 只有检查成功后程序才可修改 `config.toml`；修改前必须创建备份，失败时保持原配置不变。
+9. 安装成功后告诉用户：图片 Skill 路由将在下一轮新任务中生效。
 
 ## 公共文件
 
@@ -55,13 +56,13 @@ macOS/Linux：
 chmod +x "<CODEX_HOME>/skills/generation-image-for-api/scripts/bin/<platform>/image-api"
 ```
 
-从安装目录计算当前二进制 SHA-256，并与 `checksums.sha256` 中相同相对路径的记录比较。验证一致后执行：
+从安装目录计算当前二进制 SHA-256，并与 `checksums.sha256` 中相同相对路径的记录比较。验证一致后执行安装路由同步：
 
 ```bash
-"<CODEX_HOME>/skills/generation-image-for-api/scripts/bin/<platform>/image-api" --check
+"<CODEX_HOME>/skills/generation-image-for-api/scripts/bin/<platform>/image-api" --sync-routing
 ```
 
-Windows 执行对应的 `image-api.exe --check`。
+Windows 执行对应的 `image-api.exe --sync-routing`。
 
 正常结果会包含：
 
@@ -69,6 +70,21 @@ Windows 执行对应的 `image-api.exe --check`。
 - `image_supported`：第三方 API 是否暴露图片模型。
 - `image_models`：识别到的图片模型。
 - `use_codex_imagegen`：是否应改用 Codex 官方生图。
+- `custom_skill_enabled`：个人图片 Skill 的最终状态。
+- `system_imagegen_enabled`：系统图片 Skill 的最终状态。
+- `backup_path`：发生配置变更时创建的备份文件。
+- `restart_required`：是否需要新建任务刷新 Skill。
+
+最终路由规则：
+
+| 检测结果 | 个人 Skill | 系统 `imagegen` |
+|---|---:|---:|
+| 第三方 API 且支持图片模型 | 启用 | 禁用 |
+| OpenAI 官方 Provider | 禁用 | 启用 |
+| 第三方无图片模型，但存在 ChatGPT 官方登录 | 禁用 | 启用 |
+| 检查失败或没有可用图片路线 | 保持原状 | 保持原状 |
+
+如果以后更换 Codex Provider 或登录方式，重新直接运行一次当前平台程序的 `--sync-routing`，然后新建任务。
 
 ## 使用示例
 
