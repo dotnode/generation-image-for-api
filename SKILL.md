@@ -30,6 +30,8 @@ On macOS or Linux, ensure the selected binary is executable before its first run
 chmod +x "<image-api>"
 ```
 
+Use `<image-api> --version` to identify the executable actually being run. During installation or update, its JSON `version` must match the Skill root's `VERSION` file before and after the staged directory replaces the installed directory. Do not continue when they differ; this prevents Windows from silently retaining an older executable.
+
 ## Workflow
 
 1. During installation, after a Provider/login change, or when the user explicitly asks to repair image routing, run:
@@ -114,7 +116,7 @@ The CLI reads `model_provider` and `model_providers.<id>.base_url` from the plat
 
 ## Development
 
-The source is in `cmd/image-api`. Rebuild a platform binary from the Skill root with Go 1.23 or newer:
+The source is in `cmd/image-api`. Keep the source `appVersion` constant and the root `VERSION` file identical; tests enforce this invariant. Rebuild a platform binary from the Skill root with Go 1.23 or newer:
 
 ```bash
 CGO_ENABLED=0 GOOS=<darwin|linux|windows> GOARCH=<arm64|amd64> \

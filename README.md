@@ -44,11 +44,12 @@
 
 ### 3. 在替换前完成验证
 
-1. 确认四个公共文件和当前平台二进制均已成功下载，文件不为空。
-2. 从临时目录读取 `checksums.sha256`。
-3. 计算下载后二进制文件的 SHA-256，并与清单中相同相对路径的记录精确比较。
+1. 确认五个公共文件和当前平台二进制均已成功下载，文件不为空。
+2. 从临时目录读取 `VERSION`，得到本次应安装的版本号。
+3. 从临时目录读取 `checksums.sha256`，计算下载后二进制文件的 SHA-256，并与清单中相同相对路径的记录精确比较。
 4. SHA-256 不一致时立即停止，删除临时目录并保留现有安装，不得执行或安装该二进制。
 5. macOS/Linux 校验成功后为二进制添加可执行权限；Windows 不需要此步骤。
+6. 从临时目录运行当前平台二进制的 `--version`。确认 JSON 中 `ok: true`，并且 `version` 与 `VERSION` 文件完全一致；不一致时停止更新。
 
 ### 4. 安装或安全更新
 
@@ -66,7 +67,9 @@
 
 ### 5. 每次安装或更新后都要同步路由
 
-必须运行新安装版本中当前平台二进制的 `--sync-routing`。即使之前运行过，更新后也必须重新运行，因为新版可能修改 Provider 检测、模型识别或路由规则。
+先从正式安装目录再次运行当前平台二进制的 `--version`，确认它仍与正式目录中的 `VERSION` 一致。这一步用于防止 Windows 更新后继续调用旧的 `image-api.exe`。
+
+版本确认后，必须运行新安装版本中当前平台二进制的 `--sync-routing`。即使之前运行过，更新后也必须重新运行，因为新版可能修改 Provider 检测、模型识别或路由规则。
 
 macOS/Linux：
 
@@ -85,18 +88,20 @@ Windows：
 ### 6. 检查结果并完成交付
 
 1. 确认命令返回的 JSON 中 `ok` 为 `true`。
-2. 记录并报告 `third_party`、`image_supported`、`image_models`、`custom_skill_enabled`、`system_imagegen_enabled` 和 `restart_required`。
-3. 如果 `routing_changed` 为 `true`，确认并报告 `backup_path` 指向的配置备份确实存在。
-4. 检查 `config.toml` 中两个路由条目的 `path` 必须分别以 `generation-image-for-api/SKILL.md` 和 `.system/imagegen/SKILL.md` 结尾。仅指向 Skill 目录的旧记录无效，程序应自动迁移并去重。
-5. 如果 `ok` 不为 `true`，不要猜测安装成功；报告错误，并说明原有 Codex 配置未被修改。
-6. 明确告诉用户必须完全退出并重启 Codex App，然后新建一个任务。仅新建任务不保证重新加载修改后的 Skill 配置。
-7. 建议用户在重启后的新任务中发送一个普通生图请求，验证是否自动选择了正确的图片 Skill。
+2. 确认并报告 `version`，且它与已下载的 `VERSION` 相同。
+3. 记录并报告 `third_party`、`image_supported`、`image_models`、`custom_skill_enabled`、`system_imagegen_enabled` 和 `restart_required`。
+4. 如果 `routing_changed` 为 `true`，确认并报告 `backup_path` 指向的配置备份确实存在。
+5. 检查 `config.toml` 中两个路由条目的 `path` 必须分别以 `generation-image-for-api/SKILL.md` 和 `.system/imagegen/SKILL.md` 结尾。仅指向 Skill 目录的旧记录无效，程序应自动迁移并去重。
+6. 如果 `ok` 不为 `true`，不要猜测安装成功；报告错误，并说明原有 Codex 配置未被修改。
+7. 明确告诉用户必须完全退出并重启 Codex App，然后新建一个任务。仅新建任务不保证重新加载修改后的 Skill 配置。
+8. 建议用户在重启后的新任务中发送一个普通生图请求，验证是否自动选择了正确的图片 Skill。
 
 ## 首次运行检查表
 
 首次安装完成必须同时满足：
 
 - 当前平台二进制已经通过 SHA-256 校验。
+- 二进制 `--version` 的结果与 `VERSION` 文件一致。
 - macOS/Linux 二进制已有可执行权限。
 - `--sync-routing` 返回 `ok: true`。
 - 路由发生变化时，配置备份路径真实存在。
@@ -111,9 +116,10 @@ Skill 更新后仍需完成以下步骤，不能只替换 `SKILL.md`：
 
 1. 重新下载全部公共文件和当前平台二进制。
 2. 重新验证新版二进制 SHA-256。
-3. 用已验证的新目录替换旧目录，成功后不保留旧版 Skill。
-4. 使用新版二进制重新运行 `--sync-routing`。
-5. 完全退出并重启 Codex App，再新建任务，让新版 Skill 和新的启用状态生效。
+3. 对照 `VERSION` 验证临时目录和正式安装目录中的二进制版本。
+4. 用已验证的新目录替换旧目录，成功后不保留旧版 Skill。
+5. 使用新版二进制重新运行 `--sync-routing`。
+6. 完全退出并重启 Codex App，再新建任务，让新版 Skill 和新的启用状态生效。
 
 因此，更新时最简单可靠的方法仍是再次发送本文顶部的“一句话安装或更新”。
 
@@ -130,6 +136,7 @@ Skill 更新后仍需完成以下步骤，不能只替换 `SKILL.md`：
 | `SKILL.md` | `https://raw.githubusercontent.com/dotnode/generation-image-for-api/main/SKILL.md` |
 | `README.md` | `https://raw.githubusercontent.com/dotnode/generation-image-for-api/main/README.md` |
 | `agents/openai.yaml` | `https://raw.githubusercontent.com/dotnode/generation-image-for-api/main/agents/openai.yaml` |
+| `VERSION` | `https://raw.githubusercontent.com/dotnode/generation-image-for-api/main/VERSION` |
 | `checksums.sha256` | `https://raw.githubusercontent.com/dotnode/generation-image-for-api/main/checksums.sha256` |
 
 ## 平台二进制
@@ -149,6 +156,7 @@ Skill 更新后仍需完成以下步骤，不能只替换 `SKILL.md`：
 
 `--sync-routing` 的主要输出字段：
 
+- `version`：实际运行的 `image-api` 版本，可用于确认 Windows 没有继续调用旧 EXE。
 - `third_party`：当前是否为第三方 API。
 - `image_supported`：第三方 API 是否暴露图片模型。
 - `image_models`：识别到的图片模型。

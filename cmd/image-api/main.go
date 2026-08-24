@@ -30,7 +30,8 @@ import (
 )
 
 const (
-	userAgent   = "codex-generation-image-for-api-skill/2.1"
+	appVersion  = "2.2.0"
+	userAgent   = "codex-generation-image-for-api-skill/" + appVersion
 	maxEditSize = 50 * 1024 * 1024
 )
 
@@ -43,6 +44,7 @@ func (values *stringList) Set(value string) error {
 }
 
 type options struct {
+	version     bool
 	check       bool
 	syncRouting bool
 	listModels  bool
@@ -106,6 +108,7 @@ type imageItem struct {
 
 type outputResult struct {
 	OK                 bool     `json:"ok"`
+	Version            string   `json:"version,omitempty"`
 	Provider           string   `json:"provider,omitempty"`
 	ProviderType       string   `json:"provider_type,omitempty"`
 	ThirdParty         *bool    `json:"third_party,omitempty"`
@@ -143,6 +146,10 @@ func run(args []string, stdout, stderr io.Writer) int {
 	if err != nil {
 		writeJSON(stderr, outputResult{OK: false, Error: err.Error()})
 		return 2
+	}
+	if opts.version {
+		writeJSON(stdout, outputResult{OK: true})
+		return 0
 	}
 
 	selection, err := loadProvider()
@@ -356,6 +363,7 @@ func parseOptions(args []string) (options, error) {
 	}
 	flags := flag.NewFlagSet("image-api", flag.ContinueOnError)
 	flags.SetOutput(io.Discard)
+	flags.BoolVar(&opts.version, "version", false, "print the image-api version")
 	flags.BoolVar(&opts.check, "check", false, "validate provider and token resolution")
 	flags.BoolVar(&opts.syncRouting, "sync-routing", false, "safely enable the appropriate image skill in Codex config")
 	flags.BoolVar(&opts.listModels, "list-models", false, "list likely image models")
@@ -373,6 +381,9 @@ func parseOptions(args []string) (options, error) {
 	}
 	if flags.NArg() != 0 {
 		return opts, fmt.Errorf("unexpected arguments: %s", strings.Join(flags.Args(), " "))
+	}
+	if opts.version && (opts.check || opts.syncRouting || opts.listModels || opts.prompt != "" || len(opts.edits) != 0 || opts.mask != "") {
+		return opts, errors.New("--version cannot be combined with other modes or image actions")
 	}
 	if opts.syncRouting && (opts.check || opts.listModels || opts.prompt != "" || len(opts.edits) != 0 || opts.mask != "") {
 		return opts, errors.New("--sync-routing cannot be combined with image actions or other diagnostic modes")
@@ -1081,6 +1092,9 @@ func randomHex(bytesCount int) (string, error) {
 }
 
 func writeJSON(writer io.Writer, value outputResult) {
+	if value.Version == "" {
+		value.Version = appVersion
+	}
 	encoder := json.NewEncoder(writer)
 	encoder.SetEscapeHTML(false)
 	_ = encoder.Encode(value)

@@ -10,6 +10,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/pelletier/go-toml/v2"
@@ -40,6 +41,39 @@ func decodeResult(t *testing.T, buffer *bytes.Buffer) outputResult {
 		t.Fatalf("decode result %q: %v", buffer.String(), err)
 	}
 	return result
+}
+
+func TestVersionDoesNotRequireCodexConfig(t *testing.T) {
+	t.Setenv("CODEX_HOME", t.TempDir())
+	var stdout, stderr bytes.Buffer
+	if code := run([]string{"--version"}, &stdout, &stderr); code != 0 {
+		t.Fatalf("version failed (%d): %s", code, stderr.String())
+	}
+	result := decodeResult(t, &stdout)
+	if !result.OK || result.Version != appVersion {
+		t.Fatalf("unexpected version result: %#v", result)
+	}
+}
+
+func TestVersionFileMatchesBinary(t *testing.T) {
+	raw, err := os.ReadFile(filepath.Join("..", "..", "VERSION"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.TrimSpace(string(raw)) != appVersion {
+		t.Fatalf("VERSION file %q does not match binary version %q", strings.TrimSpace(string(raw)), appVersion)
+	}
+}
+
+func TestVersionRejectsOtherModes(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	if code := run([]string{"--version", "--check"}, &stdout, &stderr); code != 2 {
+		t.Fatalf("expected argument failure, got %d", code)
+	}
+	result := decodeResult(t, &stderr)
+	if result.OK || result.Version != appVersion {
+		t.Fatalf("unexpected version conflict result: %#v", result)
+	}
 }
 
 func TestLoadProviderAndResolveEnvironmentToken(t *testing.T) {
