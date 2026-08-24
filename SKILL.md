@@ -24,6 +24,12 @@ Select exactly one executable for the current operating system and architecture:
 
 Resolve the Skill root from `${CODEX_HOME:-$HOME/.codex}/skills/generation-image-for-api` on macOS/Linux. On Windows, use `%CODEX_HOME%\skills\generation-image-for-api` when `CODEX_HOME` is set, otherwise `%USERPROFILE%\.codex\skills\generation-image-for-api`. In the examples below, replace `<image-api>` with the absolute path to the selected executable.
 
+On macOS or Linux, ensure the selected binary is executable before its first run. GitHub ZIP installation can discard executable permissions:
+
+```bash
+chmod +x "<image-api>"
+```
+
 ## Workflow
 
 1. Run the non-billable routing and model-support check first:
