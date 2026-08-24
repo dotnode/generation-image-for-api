@@ -268,13 +268,14 @@ func TestSyncRoutingEnablesCustomSkillForSupportedThirdParty(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	customPath := filepath.Join(home, "skills", "generation-image-for-api")
+	legacyCustomPath := filepath.Join(home, "skills", "generation-image-for-api")
+	customPath := filepath.Join(legacyCustomPath, "SKILL.md")
 	config := string(original) + fmt.Sprintf(`
 # preserve this comment
 [[skills.config]]
 path = %q
 enabled = false
-`, customPath)
+`, legacyCustomPath)
 	if err := os.WriteFile(configPath, []byte(config), 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -292,7 +293,8 @@ enabled = false
 		t.Fatalf("unexpected system routing result: %#v", result)
 	}
 	assertSkillEnabled(t, configPath, customPath, true)
-	assertSkillEnabled(t, configPath, filepath.Join(home, "skills", ".system", "imagegen"), false)
+	assertSkillNotConfigured(t, configPath, legacyCustomPath)
+	assertSkillEnabled(t, configPath, filepath.Join(home, "skills", ".system", "imagegen", "SKILL.md"), false)
 	updated, err := os.ReadFile(configPath)
 	if err != nil {
 		t.Fatal(err)
@@ -321,8 +323,10 @@ enabled = false
 
 func TestSyncRoutingEnablesSystemSkillForOfficialProvider(t *testing.T) {
 	home := t.TempDir()
-	customPath := filepath.Join(home, "skills", "generation-image-for-api")
-	systemPath := filepath.Join(home, "skills", ".system", "imagegen")
+	legacyCustomPath := filepath.Join(home, "skills", "generation-image-for-api")
+	legacySystemPath := filepath.Join(home, "skills", ".system", "imagegen")
+	customPath := filepath.Join(legacyCustomPath, "SKILL.md")
+	systemPath := filepath.Join(legacySystemPath, "SKILL.md")
 	config := fmt.Sprintf(`model_provider = "openai"
 
 [[skills.config]]
@@ -332,7 +336,7 @@ enabled = true
 [[skills.config]]
 path = %q
 enabled = false
-`, customPath, systemPath)
+`, legacyCustomPath, legacySystemPath)
 	if err := os.WriteFile(filepath.Join(home, "config.toml"), []byte(config), 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -354,6 +358,42 @@ enabled = false
 	}
 	assertSkillEnabled(t, filepath.Join(home, "config.toml"), customPath, false)
 	assertSkillEnabled(t, filepath.Join(home, "config.toml"), systemPath, true)
+	assertSkillNotConfigured(t, filepath.Join(home, "config.toml"), legacyCustomPath)
+	assertSkillNotConfigured(t, filepath.Join(home, "config.toml"), legacySystemPath)
+}
+
+func TestUpdateSkillConfigDeduplicatesLegacyAndCanonicalPaths(t *testing.T) {
+	home := t.TempDir()
+	legacyPath := filepath.Join(home, "skills", "generation-image-for-api")
+	canonicalPath := filepath.Join(legacyPath, "SKILL.md")
+	raw := []byte(fmt.Sprintf(`[[skills.config]]
+path = %q
+enabled = false
+
+[[skills.config]]
+path = %q
+enabled = false
+`, legacyPath, canonicalPath))
+	desired := []skillToggle{{Path: canonicalPath, Aliases: []string{legacyPath}, Enabled: true}}
+
+	updated, changed, err := updateSkillConfig(raw, home, desired)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !changed {
+		t.Fatal("expected legacy skill entries to be migrated")
+	}
+	var document skillConfigDocument
+	if err := toml.Unmarshal(updated, &document); err != nil {
+		t.Fatal(err)
+	}
+	if len(document.Skills.Config) != 1 {
+		t.Fatalf("expected one canonical skill entry, got %d", len(document.Skills.Config))
+	}
+	item := document.Skills.Config[0]
+	if filepath.Clean(item.Path) != filepath.Clean(canonicalPath) || item.Enabled == nil || !*item.Enabled {
+		t.Fatalf("unexpected canonical skill entry: %#v", item)
+	}
 }
 
 func TestSyncRoutingLeavesConfigUntouchedWhenNoImageRouteExists(t *testing.T) {
@@ -433,4 +473,21 @@ func assertSkillEnabled(t *testing.T, configPath, skillPath string, expected boo
 		}
 	}
 	t.Fatalf("skill config not found: %s", skillPath)
+}
+
+func assertSkillNotConfigured(t *testing.T, configPath, skillPath string) {
+	t.Helper()
+	raw, err := os.ReadFile(configPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var document skillConfigDocument
+	if err := toml.Unmarshal(raw, &document); err != nil {
+		t.Fatal(err)
+	}
+	for _, item := range document.Skills.Config {
+		if filepath.Clean(item.Path) == filepath.Clean(skillPath) {
+			t.Fatalf("legacy skill config still present: %s", skillPath)
+		}
+	}
 }

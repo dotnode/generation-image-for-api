@@ -30,7 +30,7 @@ import (
 )
 
 const (
-	userAgent   = "codex-generation-image-for-api-skill/2.0"
+	userAgent   = "codex-generation-image-for-api-skill/2.1"
 	maxEditSize = 50 * 1024 * 1024
 )
 
@@ -329,7 +329,7 @@ func runSyncRouting(opts options, selection providerSelection, baseURL, authMode
 	restartRequired := changed
 	message := "Image skill routing already matched the detected provider."
 	if changed {
-		message = "Image skill routing was updated. Start a new Codex task so the skill catalog refreshes."
+		message = "Image skill routing was updated. Restart Codex, then start a new task so the skill catalog refreshes."
 	}
 	providerType := "official_openai"
 	if thirdParty {
@@ -474,8 +474,16 @@ func syncSkillConfig(home string, customEnabled, systemEnabled bool) (string, st
 		return configPath, "", false, fmt.Errorf("read Codex config: %w", err)
 	}
 	desired := []skillToggle{
-		{Path: filepath.Join(home, "skills", "generation-image-for-api"), Enabled: customEnabled},
-		{Path: filepath.Join(home, "skills", ".system", "imagegen"), Enabled: systemEnabled},
+		{
+			Path:    filepath.Join(home, "skills", "generation-image-for-api", "SKILL.md"),
+			Aliases: []string{filepath.Join(home, "skills", "generation-image-for-api")},
+			Enabled: customEnabled,
+		},
+		{
+			Path:    filepath.Join(home, "skills", ".system", "imagegen", "SKILL.md"),
+			Aliases: []string{filepath.Join(home, "skills", ".system", "imagegen")},
+			Enabled: systemEnabled,
+		},
 	}
 	updated, changed, err := updateSkillConfig(raw, home, desired)
 	if err != nil {
@@ -500,6 +508,7 @@ func syncSkillConfig(home string, customEnabled, systemEnabled bool) (string, st
 
 type skillToggle struct {
 	Path    string
+	Aliases []string
 	Enabled bool
 }
 
@@ -522,13 +531,25 @@ func updateSkillConfig(raw []byte, home string, desired []skillToggle) ([]byte, 
 	if len(lines) == 1 && lines[0] == "" {
 		lines = nil
 	}
-	targets := make(map[string]skillToggle, len(desired))
+	type skillTarget struct {
+		canonical string
+		toggle    skillToggle
+	}
+	targets := make(map[string]skillTarget, len(desired)*2)
 	for _, toggle := range desired {
 		normalized, err := normalizeConfigPath(toggle.Path, home)
 		if err != nil {
 			return nil, false, err
 		}
-		targets[normalized] = toggle
+		target := skillTarget{canonical: normalized, toggle: toggle}
+		targets[normalized] = target
+		for _, alias := range toggle.Aliases {
+			normalizedAlias, err := normalizeConfigPath(alias, home)
+			if err != nil {
+				return nil, false, err
+			}
+			targets[normalizedAlias] = target
+		}
 	}
 	found := make(map[string]bool, len(desired))
 	out := make([]string, 0, len(lines)+8)
@@ -554,11 +575,17 @@ func updateSkillConfig(raw []byte, home string, desired []skillToggle) ([]byte, 
 			if err != nil {
 				return nil, false, err
 			}
-			if toggle, ok := targets[normalized]; ok {
-				var blockChanged bool
-				block, blockChanged = setSkillBlockEnabled(block, toggle.Enabled)
-				changed = changed || blockChanged
-				found[normalized] = true
+			if target, ok := targets[normalized]; ok {
+				if found[target.canonical] {
+					changed = true
+					index = end
+					continue
+				}
+				var pathChanged, enabledChanged bool
+				block, pathChanged = setSkillBlockPath(block, target.toggle.Path)
+				block, enabledChanged = setSkillBlockEnabled(block, target.toggle.Enabled)
+				changed = changed || pathChanged || enabledChanged
+				found[target.canonical] = true
 			}
 		}
 		out = append(out, block...)
@@ -625,6 +652,22 @@ func setSkillBlockEnabled(block []string, enabled bool) ([]string, bool) {
 		}
 	}
 	return append(block, "enabled = "+desired), true
+}
+
+func setSkillBlockPath(block []string, path string) ([]string, bool) {
+	current, err := skillBlockPath(block)
+	if err == nil && filepath.Clean(current) == filepath.Clean(path) {
+		return block, false
+	}
+	for index, line := range block {
+		if !pathSetting.MatchString(line) {
+			continue
+		}
+		indent := line[:len(line)-len(strings.TrimLeft(line, " \t"))]
+		block[index] = indent + "path = " + strconv.Quote(path)
+		return block, true
+	}
+	return append(block, "path = "+strconv.Quote(path)), true
 }
 
 func normalizeConfigPath(path, home string) (string, error) {

@@ -38,14 +38,14 @@ chmod +x "<image-api>"
    <image-api> --sync-routing
    ```
 
-   This command checks the Provider before changing configuration, creates a local backup, and atomically updates the two image Skill entries:
+   This command checks the Provider before changing configuration, creates a local backup, and atomically updates the two image Skill entries. Each `[[skills.config]].path` points to the Skill's exact `SKILL.md` file, as required by Codex; legacy directory-only entries are migrated and deduplicated:
 
    - Supported third-party image API: enable `generation-image-for-api` and disable the system `imagegen` Skill.
    - Official OpenAI Provider: disable `generation-image-for-api` and enable the system `imagegen` Skill.
    - Third-party API without an image model but with an official ChatGPT login: enable the system `imagegen` Skill.
    - Failed verification or no usable image route: leave `config.toml` unchanged.
 
-   A changed routing configuration applies to a new Codex task. Do not repeatedly run this mutation during ordinary image requests when the Provider has not changed.
+   After a changed routing configuration, fully restart Codex and then start a new task so the Skill catalog reloads. Installing or updating this Skill also requires a Codex restart even when the route itself was already correct. Do not repeatedly run this mutation during ordinary image requests when the Provider has not changed.
 
 2. For an ordinary request routed to this Skill, run the non-billable model-support check first:
 
@@ -106,7 +106,7 @@ The CLI reads `model_provider` and `model_providers.<id>.base_url` from the plat
 
 - Never print, paste, log, or persist the resolved token.
 - Do not copy credentials into this Skill or generated artifacts.
-- `--sync-routing` updates only matching `[[skills.config]]` entries, writes through a same-directory temporary file, and creates a timestamped backup before replacement. Do not delete that backup automatically.
+- `--sync-routing` updates only the matching `SKILL.md`-based `[[skills.config]]` entries, removes duplicate legacy directory-path entries, writes through a same-directory temporary file, and creates a timestamped backup before replacement. Do not delete that backup automatically.
 - A direct user request to generate an image authorizes the requested generation. Do not create extra variants or retry a billable request more than once unless the user asks.
 - The configured service must expose OpenAI-compatible `/images/generations` for generation and `/images/edits` for editing, returning either `data[0].b64_json` or `data[0].url`.
 - Editing uploads one to five local images using multipart form data. A mask, when supplied, applies to the first image.

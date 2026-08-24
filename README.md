@@ -87,9 +87,10 @@ Windows：
 1. 确认命令返回的 JSON 中 `ok` 为 `true`。
 2. 记录并报告 `third_party`、`image_supported`、`image_models`、`custom_skill_enabled`、`system_imagegen_enabled` 和 `restart_required`。
 3. 如果 `routing_changed` 为 `true`，确认并报告 `backup_path` 指向的配置备份确实存在。
-4. 如果 `ok` 不为 `true`，不要猜测安装成功；报告错误，并说明原有 Codex 配置未被修改。
-5. 明确告诉用户必须新建一个 Codex 任务。当前任务不会重新加载刚安装或刚更新的 Skill 状态。
-6. 建议用户在新任务中发送一个普通生图请求，验证是否自动选择了正确的图片 Skill。
+4. 检查 `config.toml` 中两个路由条目的 `path` 必须分别以 `generation-image-for-api/SKILL.md` 和 `.system/imagegen/SKILL.md` 结尾。仅指向 Skill 目录的旧记录无效，程序应自动迁移并去重。
+5. 如果 `ok` 不为 `true`，不要猜测安装成功；报告错误，并说明原有 Codex 配置未被修改。
+6. 明确告诉用户必须完全退出并重启 Codex App，然后新建一个任务。仅新建任务不保证重新加载修改后的 Skill 配置。
+7. 建议用户在重启后的新任务中发送一个普通生图请求，验证是否自动选择了正确的图片 Skill。
 
 ## 首次运行检查表
 
@@ -99,7 +100,8 @@ Windows：
 - macOS/Linux 二进制已有可执行权限。
 - `--sync-routing` 返回 `ok: true`。
 - 路由发生变化时，配置备份路径真实存在。
-- 用户已经被告知新建 Codex 任务后再使用。
+- 两个 `[[skills.config]].path` 都精确指向对应的 `SKILL.md` 文件，而不是目录。
+- 用户已经被告知完全重启 Codex App，并在重启后新建任务。
 
 仅下载文件不算完成安装。
 
@@ -111,13 +113,13 @@ Skill 更新后仍需完成以下步骤，不能只替换 `SKILL.md`：
 2. 重新验证新版二进制 SHA-256。
 3. 用已验证的新目录替换旧目录，成功后不保留旧版 Skill。
 4. 使用新版二进制重新运行 `--sync-routing`。
-5. 新建 Codex 任务，让新版 Skill 和新的启用状态生效。
+5. 完全退出并重启 Codex App，再新建任务，让新版 Skill 和新的启用状态生效。
 
 因此，更新时最简单可靠的方法仍是再次发送本文顶部的“一句话安装或更新”。
 
 ## 什么时候只需重新同步
 
-如果安装文件没有变化，只是更换了 Codex Provider、第三方 API 地址、API Key 或 ChatGPT 登录方式，不必重新下载 Skill。直接运行当前平台程序的 `--sync-routing`，然后新建一个 Codex 任务。
+如果安装文件没有变化，只是更换了 Codex Provider、第三方 API 地址、API Key 或 ChatGPT 登录方式，不必重新下载 Skill。直接运行当前平台程序的 `--sync-routing`；如果 `routing_changed` 为 `true`，完全退出并重启 Codex App，然后新建任务。
 
 ## 公共文件
 
@@ -155,7 +157,7 @@ Skill 更新后仍需完成以下步骤，不能只替换 `SKILL.md`：
 - `system_imagegen_enabled`：系统 `imagegen` Skill 的最终状态。
 - `routing_changed`：本次是否修改了路由配置。
 - `backup_path`：发生配置变更时创建的配置备份文件。
-- `restart_required`：是否需要新建任务刷新 Skill。
+- `restart_required`：路由配置是否发生变化并需要重启 Codex。安装或更新 Skill 文件后，无论该字段为何值，都应重启 Codex。
 
 最终路由规则：
 
@@ -168,7 +170,7 @@ Skill 更新后仍需完成以下步骤，不能只替换 `SKILL.md`：
 
 ## 使用示例
 
-新建任务后，可以直接描述图片需求，也可以明确指定 Skill：
+重启 Codex 并新建任务后，可以直接描述图片需求，也可以明确指定 Skill：
 
 ```text
 使用 $generation-image-for-api 生成一张赛博朋克城市夜景。
