@@ -1,0 +1,6 @@
+16e31e39ef3200408c8c38ed9ca676c1f1ca5d1410907f1eb595a34ffe6ae888  scripts/bin/darwin-amd64/image-api
+c8fb2d11cbf0a2f2306e6cc75f2837a7b4b21a17e1db77065394b11b3e9ca3f6  scripts/bin/darwin-arm64/image-api
+ad97049b035023329cf412d3e3bda7cfeb14884275d7ce4b9ac5b721d9d2789a  scripts/bin/linux-amd64/image-api
+978d69a63e1cf50435eedef6e68adc50a193484ca6032f174437faaf68732106  scripts/bin/linux-arm64/image-api
+c0b42cbd8181efd2c415f921cdaf9fe4ad01139922835691367adcbcfd29b897  scripts/bin/windows-amd64/image-api.exe
+224035d1e4adb4b5c5e04d0de534a621efb041a24064d5aa262ed7c571f4d128  scripts/bin/windows-arm64/image-api.exe

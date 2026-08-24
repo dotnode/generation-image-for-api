@@ -1,91 +1,83 @@
-# Generation Image for API
+# Generation Image for API — Codex 安装文档
 
-这是一个跨平台 Codex Skill，用于通过 Codex 当前配置的 NewAPI 或其他 OpenAI 兼容第三方 API 生成、编辑和合成图片。
+这是一个跨平台 Codex Skill，用于通过 NewAPI 或其他 OpenAI 兼容第三方 API 生成、编辑和合成图片。它会自动判断当前 Provider：第三方 API 会先检查图片模型；OpenAI 官方 Provider 会提示 Codex 改用官方内置生图能力。
 
-它会先检查当前 Provider：
+## 一句话安装
 
-- 第三方 API：查询 `/models`，确认存在图片模型后再调用 `/images/generations` 或 `/images/edits`。
-- OpenAI 官方 Provider：不调用本程序，提示 Codex 使用官方内置 `imagegen` 能力。
-
-运行时不需要安装 Python 或 Go。仓库包含 macOS、Linux 和 Windows 的 amd64/arm64 二进制程序。
-
-## Codex App 一句话安装
-
-将下面这句话直接发送给 Codex App：
+将下面这一句话发送给 Codex App：
 
 ```text
-请用 $skill-installer 安装 dotnode/generation-image-for-api，并按仓库 README 完成权限设置和安装验证。
+请联网读取并执行这个安装文档：https://raw.githubusercontent.com/dotnode/generation-image-for-api/main/README.md
 ```
 
-## Codex 安装要求
+## 给 Codex App 的安装指令
 
-Codex 读取本 README 后，应按以下参数调用系统 `skill-installer`：
+如果你是因为用户发送了上面的提示词而读取本文档，请直接完成安装，不要让用户手工下载文件。
 
-```text
-repo: dotnode/generation-image-for-api
-ref: main
-path: .
-name: generation-image-for-api
-method: download
-```
+1. 确定 Codex Home：优先使用 `CODEX_HOME`，否则使用用户目录下的 `.codex`。
+2. 安装目录为 `<CODEX_HOME>/skills/generation-image-for-api`。如果该目录已存在，停止并告诉用户，不要自行覆盖或删除。
+3. 判断当前操作系统和 CPU 架构，只下载公共文件和当前平台对应的一个二进制文件。
+4. 所有资源必须从下面列出的 `raw.githubusercontent.com` 地址下载，不需要克隆或访问 GitHub 仓库页面。
+5. macOS/Linux 下载后为二进制添加可执行权限；Windows 不需要。
+6. 对照 `checksums.sha256` 中当前平台对应的记录验证二进制 SHA-256。
+7. 运行二进制的 `--check`。不得输出、复制或记录 API Key。
+8. 安装成功后告诉用户：该 Skill 将在下一轮对话中可用。
 
-macOS/Linux 下的等价安装命令：
+## 公共文件
+
+保持下列相对路径下载：
+
+| 安装路径 | RAW 下载地址 |
+|---|---|
+| `SKILL.md` | `https://raw.githubusercontent.com/dotnode/generation-image-for-api/main/SKILL.md` |
+| `README.md` | `https://raw.githubusercontent.com/dotnode/generation-image-for-api/main/README.md` |
+| `agents/openai.yaml` | `https://raw.githubusercontent.com/dotnode/generation-image-for-api/main/agents/openai.yaml` |
+| `checksums.sha256` | `https://raw.githubusercontent.com/dotnode/generation-image-for-api/main/checksums.sha256` |
+
+## 平台二进制
+
+只下载与当前平台匹配的一项，并保持表中的安装路径：
+
+| 平台 | 安装路径 | RAW 下载地址 |
+|---|---|---|
+| macOS Apple Silicon | `scripts/bin/darwin-arm64/image-api` | `https://raw.githubusercontent.com/dotnode/generation-image-for-api/main/scripts/bin/darwin-arm64/image-api` |
+| macOS Intel | `scripts/bin/darwin-amd64/image-api` | `https://raw.githubusercontent.com/dotnode/generation-image-for-api/main/scripts/bin/darwin-amd64/image-api` |
+| Linux ARM64 | `scripts/bin/linux-arm64/image-api` | `https://raw.githubusercontent.com/dotnode/generation-image-for-api/main/scripts/bin/linux-arm64/image-api` |
+| Linux x86-64 | `scripts/bin/linux-amd64/image-api` | `https://raw.githubusercontent.com/dotnode/generation-image-for-api/main/scripts/bin/linux-amd64/image-api` |
+| Windows ARM64 | `scripts/bin/windows-arm64/image-api.exe` | `https://raw.githubusercontent.com/dotnode/generation-image-for-api/main/scripts/bin/windows-arm64/image-api.exe` |
+| Windows x86-64 | `scripts/bin/windows-amd64/image-api.exe` | `https://raw.githubusercontent.com/dotnode/generation-image-for-api/main/scripts/bin/windows-amd64/image-api.exe` |
+
+## 权限与验证
+
+macOS/Linux：
 
 ```bash
-python3 "${CODEX_HOME:-$HOME/.codex}/skills/.system/skill-installer/scripts/install-skill-from-github.py" \
-  --repo dotnode/generation-image-for-api \
-  --ref main \
-  --path . \
-  --name generation-image-for-api \
-  --method download
+chmod +x "<CODEX_HOME>/skills/generation-image-for-api/scripts/bin/<platform>/image-api"
 ```
 
-安装器遇到已经存在的 `generation-image-for-api` 目录时应停止，不要自行覆盖或删除。
-
-### macOS 和 Linux 权限
-
-GitHub 下载的 ZIP 可能丢失可执行权限。安装后只需为当前平台对应的二进制添加权限：
+从安装目录计算当前二进制 SHA-256，并与 `checksums.sha256` 中相同相对路径的记录比较。验证一致后执行：
 
 ```bash
-chmod +x "${CODEX_HOME:-$HOME/.codex}/skills/generation-image-for-api/scripts/bin/<platform>/image-api"
+"<CODEX_HOME>/skills/generation-image-for-api/scripts/bin/<platform>/image-api" --check
 ```
 
-`<platform>` 可选值：
+Windows 执行对应的 `image-api.exe --check`。
 
-- Apple Silicon Mac：`darwin-arm64`
-- Intel Mac：`darwin-amd64`
-- ARM64 Linux：`linux-arm64`
-- x86-64 Linux：`linux-amd64`
+正常结果会包含：
 
-Windows 不需要执行 `chmod`，选择 `windows-arm64/image-api.exe` 或 `windows-amd64/image-api.exe`。
-
-### 安装验证
-
-运行当前平台程序的非计费检查：
-
-```bash
-<image-api> --check
-```
-
-验证成功后，Codex 应报告 Provider 类型、图片模型支持情况，并提醒该 Skill 将在下一轮对话中可用。不得输出或记录 API Key。
+- `third_party`：当前是否为第三方 API。
+- `image_supported`：第三方 API 是否暴露图片模型。
+- `image_models`：识别到的图片模型。
+- `use_codex_imagegen`：是否应改用 Codex 官方生图。
 
 ## 使用示例
-
-安装后的 Skill 名称是 `$generation-image-for-api`：
 
 ```text
 使用 $generation-image-for-api 生成一张赛博朋克城市夜景。
 ```
 
-编辑图片时可以提供一张或多张本地图片，也可以附带蒙版：
-
 ```text
 使用 $generation-image-for-api，把这张图片的背景改成雨夜霓虹城市，保留人物不变。
 ```
 
-## 源码与安全
-
-- Go 源码：`cmd/image-api/main.go`
-- 单元测试：`cmd/image-api/main_test.go`
-- API Key 仅从 Codex 配置、环境变量或认证命令中动态读取。
-- Skill 不会把 API Key 写入仓库、图片文件或命令输出。
+运行时不需要 Python 或 Go。API Key 仅从 Codex 配置、环境变量或认证命令中动态读取，不会写入下载资源或图片文件。
