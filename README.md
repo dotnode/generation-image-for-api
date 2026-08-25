@@ -1,6 +1,6 @@
 # Generation Image for API — Codex 安装与更新文档
 
-这是一个跨平台 Codex Skill，用于通过 NewAPI 或其他 OpenAI 兼容第三方 API 生成、编辑和合成图片。它吸收了 Codex 系统图片 Skill 的通用工作流，包括普通图片请求的自动触发、生成与编辑判断、多图角色标注、提示词整理、编辑不变量、输出管理和结果验收。它会自动判断当前 Provider：第三方 API 会先检查图片模型；OpenAI 官方 Provider 会启用 Codex 内置的官方图片 Skill。
+这是一个跨平台 Codex Skill，用于通过 NewAPI 或其他 OpenAI 兼容第三方 API 生成、编辑和合成图片。它吸收了 Codex 系统图片 Skill 的通用工作流，包括普通图片请求的自动触发、生成与编辑判断、多图角色标注、提示词整理、编辑不变量、输出管理和结果验收。用户只提供简单图片需求时，它会先使用内置提示词架构器生成一份生产级提示词，再调用图片模型；用户已经给出详细要求时则优先保持原要求。它会自动判断当前 Provider：第三方 API 会先检查图片模型；OpenAI 官方 Provider 会启用 Codex 内置的官方图片 Skill。
 
 本文档同时适用于：
 

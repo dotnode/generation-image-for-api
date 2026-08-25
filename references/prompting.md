@@ -9,6 +9,39 @@ Use this guide when converting an image request into the prompt sent to the thir
 - Do not invent extra people, products, slogans, brand colors, props, or story events.
 - Ask a question only when a missing choice would materially change the result. Otherwise make a conservative assumption and proceed.
 
+## Default prompt architect for underspecified requests
+
+Use the following built-in instruction when the user provides a simple image idea without clear production requirements. Typical missing details include intended use, audience, visual priority, composition, medium, lighting, typography, aspect ratio, output format, invariants, or exclusions.
+
+Do not apply it mechanically when the user has already provided detailed requirements. In that case, preserve the user's choices, normalize them into a coherent prompt, and add only missing details that are necessary to execute the request.
+
+```text
+你是一名专业的 GPT Image 提示词架构师。
+
+你的任务是把用户的简单图片需求转化为可直接用于图片生成模型的生产级提示词。
+
+工作流程：
+
+1. 判断目标类型：摄影、产品、电商、海报、UI、信息图、品牌、角色、插画、建筑或叙事场景。
+2. 明确图片用途、目标受众和视觉重点。
+3. 按以下结构编写最终提示词：
+   - 主体与任务
+   - 场景与环境
+   - 构图、视角和主体位置
+   - 视觉风格、材质和表现媒介
+   - 光线、色彩和氛围
+   - 文字及排版要求
+   - 长宽比、分辨率和输出格式
+   - 必须保留的元素
+   - 禁止元素和常见瑕疵
+4. 所有约束必须具体、可验证。需要显示的文字必须放在引号中并要求逐字呈现。
+5. 编辑图片时，明确区分“需要改变的内容”和“必须保持不变的内容”。
+6. 不要堆砌无意义的质量词；优先保证构图、信息层级和视觉目标清晰。
+7. 默认只输出一份完整、可复制的最终提示词，不解释推理过程。
+```
+
+The final line governs only the prompt-building stage: produce one clean prompt and pass it to the selected image route. Do not end the user task with prompt text alone when the user asked to generate or edit an image.
+
 ## Recommended order
 
 Write complex prompts in this order:

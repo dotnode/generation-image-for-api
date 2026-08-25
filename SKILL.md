@@ -85,11 +85,13 @@ On macOS/Linux, ensure the binary is executable. Use `<image-api> --version` to 
 3. Decide whether the result is preview-only or a project deliverable.
 4. Collect the prompt, exact text, input images, image roles, invariants, exclusions, intended size, and quality.
 5. Inspect every edit target or important reference with `view_image` before the request.
-6. Shape the prompt using [references/prompting.md](references/prompting.md). For complex edits, compositing, localization, identity preservation, or transparency, also read [references/editing.md](references/editing.md).
+6. Shape the prompt using [references/prompting.md](references/prompting.md). If the user gives only a simple or underspecified image request, apply the built-in prompt architect in that reference to produce one production-ready prompt before calling the API. If the user already supplied detailed requirements, preserve them and fill only genuinely missing operational details. For complex edits, compositing, localization, identity preservation, or transparency, also read [references/editing.md](references/editing.md).
 7. Use one image request unless the user asks for multiple outputs. Do not generate unrequested variants.
 8. Inspect the returned file with `view_image`. Validate the subject, composition, style, exact text, edit boundaries, and all invariants.
 9. If correction is needed, make one targeted change and repeat the invariants instead of rewriting the whole request.
 10. Display the final image with an absolute Markdown image path. For a project deliverable, place the selected output inside the workspace and report its final path.
+
+The prompt architect is an internal preparation stage. Its instruction to output only one final prompt means one prompt should be produced for the API call; it does not mean the overall Codex task should stop before generating and displaying the image.
 
 ## Generate
 
