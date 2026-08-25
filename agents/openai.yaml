@@ -1,4 +1,6 @@
 interface:
-  display_name: "Generation Image for API"
-  short_description: "Generate or edit images with a third-party API"
-  default_prompt: "Use $generation-image-for-api to generate or edit an image through my current Codex provider."
+  display_name: "Third-Party Image Gen"
+  short_description: "Create and edit images through NewAPI providers"
+  default_prompt: "Use $generation-image-for-api to create or edit a bitmap image through my current third-party provider."
+policy:
+  allow_implicit_invocation: true

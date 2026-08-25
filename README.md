@@ -1,6 +1,6 @@
 # Generation Image for API — Codex 安装与更新文档
 
-这是一个跨平台 Codex Skill，用于通过 NewAPI 或其他 OpenAI 兼容第三方 API 生成、编辑和合成图片。它会自动判断当前 Provider：第三方 API 会先检查图片模型；OpenAI 官方 Provider 会启用 Codex 内置的官方图片 Skill。
+这是一个跨平台 Codex Skill，用于通过 NewAPI 或其他 OpenAI 兼容第三方 API 生成、编辑和合成图片。它吸收了 Codex 系统图片 Skill 的通用工作流，包括普通图片请求的自动触发、生成与编辑判断、多图角色标注、提示词整理、编辑不变量、输出管理和结果验收。它会自动判断当前 Provider：第三方 API 会先检查图片模型；OpenAI 官方 Provider 会启用 Codex 内置的官方图片 Skill。
 
 本文档同时适用于：
 
@@ -44,7 +44,7 @@
 
 ### 3. 在替换前完成验证
 
-1. 确认五个公共文件和当前平台二进制均已成功下载，文件不为空。
+1. 确认七个公共文件和当前平台二进制均已成功下载，文件不为空。
 2. 从临时目录读取 `VERSION`，得到本次应安装的版本号。
 3. 从临时目录读取 `checksums.sha256`，计算下载后二进制文件的 SHA-256，并与清单中相同相对路径的记录精确比较。
 4. SHA-256 不一致时立即停止，删除临时目录并保留现有安装，不得执行或安装该二进制。
@@ -136,6 +136,8 @@ Skill 更新后仍需完成以下步骤，不能只替换 `SKILL.md`：
 | `SKILL.md` | `https://raw.githubusercontent.com/dotnode/generation-image-for-api/main/SKILL.md` |
 | `README.md` | `https://raw.githubusercontent.com/dotnode/generation-image-for-api/main/README.md` |
 | `agents/openai.yaml` | `https://raw.githubusercontent.com/dotnode/generation-image-for-api/main/agents/openai.yaml` |
+| `references/prompting.md` | `https://raw.githubusercontent.com/dotnode/generation-image-for-api/main/references/prompting.md` |
+| `references/editing.md` | `https://raw.githubusercontent.com/dotnode/generation-image-for-api/main/references/editing.md` |
 | `VERSION` | `https://raw.githubusercontent.com/dotnode/generation-image-for-api/main/VERSION` |
 | `checksums.sha256` | `https://raw.githubusercontent.com/dotnode/generation-image-for-api/main/checksums.sha256` |
 
@@ -178,7 +180,13 @@ Skill 更新后仍需完成以下步骤，不能只替换 `SKILL.md`：
 
 ## 使用示例
 
-重启 Codex 并新建任务后，可以直接描述图片需求，也可以明确指定 Skill：
+重启 Codex 并新建任务后，可以直接描述图片需求。`agents/openai.yaml` 已明确允许隐式调用，因此不要求用户每次写出 Skill 名称：
+
+```text
+生成一张赛博朋克城市夜景，宽幅构图，雨夜霓虹灯光。
+```
+
+也可以明确指定 Skill：
 
 ```text
 使用 $generation-image-for-api 生成一张赛博朋克城市夜景。
